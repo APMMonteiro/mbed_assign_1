@@ -1,0 +1,9 @@
+menu "Application Settings"
+
+config APP_DEBUG_TIMING
+    bool "Enable debug timing"
+    default n
+    help
+        Compile the app using slow debug timing
+
+endmenu
