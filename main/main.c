@@ -19,12 +19,14 @@ const unsigned long b = 12 * 100;
 const unsigned long c = 13 + 4;
 const unsigned long d = 7 * 500;
 
-#define DEBUG 0 // set 1 for slow, 0 for normal
+// #define DEBUG 0 // set 1 for slow, 0 for normal
 // const unsigned long DEBUG_SLOWER = DEBUG ? 1000 : 1;
 #ifdef CONFIG_APP_DEBUG_TIMING
     const unsigned long DEBUG_SLOWER = 1000UL;
+    #define DEBUG 1
 #else
     const unsigned long DEBUG_SLOWER = 1UL;
+    #define DEBUG 0
 #endif
 
 
@@ -34,16 +36,12 @@ const unsigned long PULSE_LOW_LEN  = b * DEBUG_SLOWER;
 const unsigned long NUM_PULSES     = c;
 const unsigned long PULSE_PAUSE_LEN = d * DEBUG_SLOWER;
 
-const char* TAG = "main";
-
-bool isEnabled = false;
-bool isStateAlternative = false;
-bool yield_wdg = true;
-
 static inline long T_ON_n(uint8_t n)
 {
     return (a + (n - 1) * 50) * DEBUG_SLOWER;
 }
+
+const char* TAG = "main";
 
 typedef enum {
     STATE_STOPPED,
@@ -52,12 +50,15 @@ typedef enum {
     STATE_PAUSE
 } pulse_state_t;
 
+static volatile bool isEnabled = false;
+static volatile bool isStateAlternative = false;
+
 static volatile bool timerTriggered = false;
-static pulse_state_t state = STATE_STOPPED;
+static volatile pulse_state_t state = STATE_STOPPED;
 static gptimer_handle_t gptimer = NULL;
-static int dataPinState = 0;
-static int signalPinState = 0;
-static int dataPulseNum = 0;
+static volatile int dataPinState = 0;
+static volatile int signalPinState = 0;
+static volatile int dataPulseNum = 0;
 
 void stopStateMachine(void);
 void startStateMachine(void);
@@ -140,9 +141,6 @@ void stateMachine(void)
     gptimer_alarm_config_t alarm_config = {
         .alarm_count = next_alarm,
     };
-    if (next_alarm > 1200) {
-        yield_wdg = true;
-    }
     gptimer_set_raw_count(gptimer, 0);
     gptimer_set_alarm_action(gptimer, &alarm_config);
     gptimer_start(gptimer);
@@ -242,7 +240,6 @@ void configure_gptimer(void)
 
 void configure_button_interrupts(void)
 {
-    // Install ISR service (1x per project)
     gpio_install_isr_service(0);
 
     // Configure pins as input with pull-up
@@ -255,7 +252,6 @@ void configure_button_interrupts(void)
     };
     gpio_config(&io_conf);
 
-    // Attach ISRs
     gpio_isr_handler_add(GREEN_OUTPUT_SELECT_PIN, ISR_SELECT_Handler, NULL);
     gpio_isr_handler_add(RED_OUTPUT_ENABLE_PIN, ISR_ENABLE_Handler, NULL);
 }
@@ -265,14 +261,12 @@ void checkStateChanges(void)
     static bool lastAlternative = false;
     static bool lastEnabled = false;
 
-    // Check for change in isStateAlternative
     if (isStateAlternative != lastAlternative) {
         ESP_LOGI(TAG, "isStateAlternative changed: %s",
                  isStateAlternative ? "true" : "false");
         lastAlternative = isStateAlternative;
     }
 
-    // Check for change in isEnabled
     if (isEnabled != lastEnabled) {
         ESP_LOGI(TAG, "isEnabled changed: %s",
                  isEnabled ? "true" : "false");
@@ -282,10 +276,8 @@ void checkStateChanges(void)
 
 void stateMachineTask(void *pvParameter) {
     while (1) {
-        // Block forever until timer ISR notifies this task
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        // Run your state machine
         stateMachine();
         if (DEBUG) {checkStateChanges();}
     }
@@ -295,18 +287,6 @@ void app_main(void)
 {
     configure_gpios();
 
-    // while (1) {
-    //     if (timerTriggered) {
-    //         timerTriggered = false;
-    //         stateMachine();
-    //     }
-    //     if (DEBUG) {checkStateChanges();}
-    //     if (yield_wdg) {
-    //         yield_wdg = false;
-    //         ESP_LOGI(TAG, "Yielding to watchdog...");
-    //         vTaskDelay(1);
-    //     }
-    // }
     xTaskCreate(
         stateMachineTask,
         "stateMachineTask",
